@@ -3,20 +3,26 @@ const router = express.Router();
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const pool = require("../config/database");
-const { v4: uuidv4 } = require("uuid");
+const { registerSchema, loginSchema } = require("../validate/authValidation");
 
 router.post("/register", async (req, res) => {
   try {
-    const { email, password, fullName, role, user_details } = req.body;
-    const {age,gender,height_cm,weight_kg, phone, address} = user_details;
+    // Validate request body with Joi
+    const { error, value } = registerSchema.validate(req.body, {
+      abortEarly: false,
+    });
 
-    // Validate input
-    if (!email || !password || !fullName) {
+    if (error) {
+      const errorMessages = error.details.map((detail) => detail.message);
       return res.status(400).json({
         success: false,
-        message: "Email, password, and name are required",
+        message: "Validation error",
+        errors: errorMessages,
       });
     }
+
+    const { email, password, fullName, role, user_details } = value;
+    const { age, gender, height_cm, weight_kg, phone, address } = user_details;
 
     // Check if user already exists
     const userExists = await pool.query(
@@ -30,7 +36,7 @@ router.post("/register", async (req, res) => {
         message: "User already exists",
       });
     }
-
+    const { v4: uuidv4 } = await import('uuid');
     const saltRounds = 10;
     const hashedPassword = await bcrypt.hash(password, saltRounds);
     const id = uuidv4();
@@ -39,27 +45,11 @@ router.post("/register", async (req, res) => {
       [id, email, hashedPassword,role || "user"]
     );
 
-    const newUser = result.rows[0];
     const createPatientDeatils = await pool.query(
       "INSERT INTO patient_details(user_id, fullname,age, gender, weight_in_kg, height_cm,phone,address) VALUES($1, $2, $3,$4,$5,$6,$7,$8) RETURNING user_id",
       [id, fullName, age, gender, weight_kg,height_cm, phone, address ]
     );
     res.status(200).send(createPatientDeatils).end();
-    // // Generate JWT token
-    // const token = jwt.sign(
-    //   { id: newUser.id, email: newUser.email, role: newUser.role },
-    //   process.env.JWT_SECRET,
-    //   { expiresIn: '7d' }
-    // );
-
-    // res.status(201).json({
-    //   success: true,
-    //   message: 'User registered successfully',
-    //   data: {
-    //     user: newUser,
-    //     token
-    //   }
-    // });
   } catch (error) {
     console.error("Register error:", error);
     res.status(500).json({
@@ -72,15 +62,20 @@ router.post("/register", async (req, res) => {
 // Login endpoint
 router.post('/login', async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { error, value } = loginSchema.validate(req.body, {
+      abortEarly: false,
+    });
 
-    // Validate input
-    if (!email || !password) {
+    if (error) {
+      const errorMessages = error.details.map((detail) => detail.message);
       return res.status(400).json({
         success: false,
-        message: 'Email and password are required'
+        message: "Validation error",
+        errors: errorMessages,
       });
     }
+
+    const { email, password } = value;
 
     // Find user
     const result = await pool.query(
